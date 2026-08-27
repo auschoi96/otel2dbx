@@ -1,0 +1,71 @@
+bundle:
+  name: otel2dbx-migration
+
+include:
+  - resources/*.yml
+
+artifacts:
+  otel2dbx:
+    type: whl
+    build: uv build
+    path: .
+
+# Every destination value is a bundle variable so the same bundle stands up in any
+# workspace. Values marked REPLACE_ME are workspace-specific; the rest are safe generic
+# defaults you can keep. Override per target below (or with `--var key=value`).
+variables:
+  experiment_name:
+    description: MLflow experiment (workspace path) that receives migrated traces
+    default: /Users/${workspace.current_user.userName}/otel-migrated-traces
+  uc_catalog:
+    description: Unity Catalog catalog for the OTEL spans table and trace-drop volume
+    default: REPLACE_ME
+  uc_schema:
+    description: Unity Catalog schema for the OTEL spans table and trace-drop volume
+    default: mlflow_traces
+  table_prefix:
+    description: Table prefix for the UC trace location (binding is permanent per experiment)
+    default: otel
+  volume_name:
+    description: Volume where OTLP JSON trace exports are dropped for migration
+    default: otel_trace_drops
+  warehouse_id:
+    description: SQL warehouse used for grants during setup (databricks warehouses list)
+    default: REPLACE_ME
+  zerobus_workspace_id:
+    description: >-
+      Workspace ID for the Zerobus OTLP endpoint (the o= number in workspace URLs).
+      Leave blank to auto-derive it from the authenticated workspace.
+    default: ""
+  zerobus_region:
+    description: Region for the Zerobus OTLP endpoint (e.g. us-east-1, eu-west-1)
+    default: us-east-1
+  service_principal_name:
+    description: Display name of the Zerobus ingestion service principal
+    default: otel2dbx-zerobus-migrator
+  secret_scope:
+    description: Secret scope holding Zerobus credentials for the migration jobs
+    default: otel2dbx-${bundle.target}
+
+# Fill in the profile for each target (databricks auth profiles list) plus every
+# REPLACE_ME variable, then:
+#   databricks bundle validate -t dev
+#   databricks bundle deploy   -t dev
+#   databricks bundle run setup_destination -t dev
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      profile: REPLACE_WITH_YOUR_PROFILE
+    variables:
+      uc_catalog: REPLACE_ME
+      warehouse_id: REPLACE_ME
+
+  prod:
+    mode: production
+    workspace:
+      profile: REPLACE_WITH_YOUR_PROFILE
+    variables:
+      uc_catalog: REPLACE_ME
+      warehouse_id: REPLACE_ME

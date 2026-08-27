@@ -1,0 +1,15 @@
+.env
+.venv/
+.uv-cache/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.otel2dbx/
+demo_workspace/
+.DS_Store
+*.pyc
+dist/
+.databricks/
+.idea/
+.claude/settings.local.json

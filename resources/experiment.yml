@@ -1,0 +1,7 @@
+resources:
+  experiments:
+    migrated_traces:
+      name: ${var.experiment_name}
+      permissions:
+        - level: CAN_READ
+          group_name: users

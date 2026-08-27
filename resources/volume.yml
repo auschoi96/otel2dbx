@@ -1,0 +1,15 @@
+resources:
+  volumes:
+    trace_drops:
+      catalog_name: ${var.uc_catalog}
+      schema_name: ${var.uc_schema}
+      name: ${var.volume_name}
+      volume_type: MANAGED
+      comment: >-
+        Drop OTLP JSON trace exports here (OpenTelemetry Collector file exporter
+        format). The migrate_traces job reads this volume.
+      grants:
+        - principal: account users
+          privileges:
+            - READ_VOLUME
+            - WRITE_VOLUME

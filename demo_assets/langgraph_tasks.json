@@ -1,0 +1,50 @@
+[
+  {
+    "id": "nation-row-count",
+    "prompt": "Use the query_sql tool: how many rows are in the samples.tpch.nation table?"
+  },
+  {
+    "id": "region-list",
+    "prompt": "Use the query_sql tool to list the five regions in samples.tpch.region, ordered by name."
+  },
+  {
+    "id": "avg-trip-distance",
+    "prompt": "Use the query_sql tool: what is the average trip distance in samples.nyctaxi.trips, rounded to 2 decimals?"
+  },
+  {
+    "id": "top-pickup-zips",
+    "prompt": "Use the query_sql tool: which three pickup zip codes in samples.nyctaxi.trips have the highest total fare amount?"
+  },
+  {
+    "id": "orders-summary",
+    "prompt": "Use the query_sql tool: how many orders are in samples.tpch.orders and what is the average total price, rounded to 2 decimals?"
+  },
+  {
+    "id": "top-customers",
+    "prompt": "Use the query_sql tool: find the top 5 customers by number of orders using samples.tpch.customer joined with samples.tpch.orders. Report their names and order counts."
+  },
+  {
+    "id": "long-trip-share",
+    "prompt": "Use the query_sql tool to find what share of trips in samples.nyctaxi.trips are longer than 5 miles, then use the calculator to express it as a percentage rounded to one decimal."
+  },
+  {
+    "id": "tpch-revenue",
+    "prompt": "Use the query_sql tool: compute total revenue in samples.tpch.lineitem as the sum of l_extendedprice * (1 - l_discount), rounded to the nearest dollar."
+  },
+  {
+    "id": "supplier-nations",
+    "prompt": "Use the query_sql tool: which supplier nations have the most distinct parts, using samples.tpch.partsupp joined with samples.tpch.supplier and samples.tpch.nation? Give the top 3."
+  },
+  {
+    "id": "fare-per-mile-with-tip",
+    "prompt": "Use the query_sql tool to find the average fare per mile in samples.nyctaxi.trips for trips longer than 1 mile, then use the calculator to compute what that becomes with an 18% tip added."
+  },
+  {
+    "id": "distinct-pickup-zips",
+    "prompt": "Use the query_sql tool: how many distinct pickup zip codes appear in samples.nyctaxi.trips?"
+  },
+  {
+    "id": "busiest-month",
+    "prompt": "Use the query_sql tool: which month has the most trips in samples.nyctaxi.trips based on tpep_pickup_datetime? Report the month and the trip count."
+  }
+]

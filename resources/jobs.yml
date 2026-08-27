@@ -1,0 +1,71 @@
+resources:
+  jobs:
+    setup_destination:
+      name: "[${bundle.target}] otel2dbx: setup migration destination"
+      environments:
+        - environment_key: default
+          spec:
+            client: "3"
+            dependencies:
+              - ../dist/*.whl
+      tasks:
+        - task_key: setup
+          environment_key: default
+          python_wheel_task:
+            package_name: otel2dbx
+            entry_point: otel2dbx
+            parameters:
+              - setup
+              - --experiment-id
+              - ${resources.experiments.migrated_traces.id}
+              - --uc-catalog
+              - ${var.uc_catalog}
+              - --uc-schema
+              - ${var.uc_schema}
+              - --table-prefix
+              - ${var.table_prefix}
+              - --warehouse-id
+              - ${var.warehouse_id}
+              - --service-principal-name
+              - ${var.service_principal_name}
+              - --secret-scope
+              - ${var.secret_scope}
+              - --zerobus-workspace-id
+              - ${var.zerobus_workspace_id}
+              - --zerobus-region
+              - ${var.zerobus_region}
+              - --no-local-env
+      permissions:
+        - level: CAN_VIEW
+          group_name: users
+
+    migrate_traces:
+      name: "[${bundle.target}] otel2dbx: migrate OTLP traces"
+      environments:
+        - environment_key: default
+          spec:
+            client: "3"
+            dependencies:
+              - ../dist/*.whl
+      parameters:
+        - name: traces_path
+          default: /Volumes/${var.uc_catalog}/${var.uc_schema}/${var.volume_name}
+      tasks:
+        - task_key: migrate
+          environment_key: default
+          python_wheel_task:
+            package_name: otel2dbx
+            entry_point: otel2dbx
+            parameters:
+              - migrate
+              - otlp-json
+              - "{{job.parameters.traces_path}}"
+              - --experiment-id
+              - ${resources.experiments.migrated_traces.id}
+              - --warehouse-id
+              - ${var.warehouse_id}
+              - --secret-scope
+              - ${var.secret_scope}
+      permissions:
+        - level: CAN_VIEW
+          group_name: users

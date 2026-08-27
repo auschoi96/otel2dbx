@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "otel2dbx"
+version = "0.1.0"
+description = "Migrate OpenTelemetry traces through Zerobus into Databricks managed MLflow"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "databricks-sdk>=0.85.0",
+  "httpx>=0.28.1",
+  "langchain-openai>=0.2.0",
+  "langgraph>=0.2.0",
+  "mlflow[databricks]>=3.14.0,<4",
+  "openinference-instrumentation-langchain>=0.1.0",
+  "opentelemetry-exporter-otlp-proto-http>=1.30.0",
+  "opentelemetry-proto>=1.38.0",
+  "opentelemetry-sdk>=1.30.0",
+  "protobuf>=5.29.0",
+  "python-dotenv>=1.1.1",
+  "rich>=14.1.0",
+  "typer>=0.16.0",
+]
+
+[project.scripts]
+otel2dbx = "otel2dbx.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4.2",
+  "pytest-cov>=7.0.0",
+  "respx>=0.22.0",
+  "ruff>=0.12.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/otel2dbx"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
