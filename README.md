@@ -19,18 +19,19 @@ Claude Code and Langfuse are only the example workload. Any platform that can pr
 The included [Databricks Asset Bundle](databricks.yml) parameterizes the entire destination, so any SA can stand it up in their own workspace:
 
 ```bash
-# 1. Point the bundle at your workspace: copy the `prod` target in databricks.yml
-#    and fill in profile, uc_catalog, warehouse_id, zerobus_workspace_id, zerobus_region.
-databricks bundle validate -t prod
-databricks bundle deploy -t prod
+# 1. Point the bundle at your workspace: in databricks.yml set the target's `profile`
+#    and its REPLACE_ME variables (uc_catalog, warehouse_id). zerobus_workspace_id and
+#    zerobus_region auto-derive; override only if derivation fails.
+databricks bundle validate -t dev
+databricks bundle deploy -t dev
 
 # 2. One job creates/binds the experiment, the service principal, grants, and a
 #    secret scope holding the Zerobus credentials.
-databricks bundle run setup_destination -t prod
+databricks bundle run setup_destination -t dev
 
 # 3. Drop any OTLP JSON export into the volume and migrate it.
 databricks fs cp traces.jsonl dbfs:/Volumes/<catalog>/<schema>/otel_trace_drops/
-databricks bundle run migrate_traces -t prod
+databricks bundle run migrate_traces -t dev
 ```
 
 Prefer to run the migration from a laptop (e.g. the source platform is only reachable locally)? The same two steps work without the bundle:
@@ -63,30 +64,33 @@ Notes:
 ```bash
 uv sync
 databricks auth login https://<your-workspace>.cloud.databricks.com --profile <your-profile>
-uv run otel2dbx demo init
-uv run otel2dbx demo up
-uv run otel2dbx zerobus bootstrap
-uv run otel2dbx doctor
+uv run otel2dbx demo init          # writes local Langfuse secrets + login password to .env
+uv run otel2dbx demo up            # starts local Langfuse + OTEL Collector (first run pulls images)
+
+# Create the destination in YOUR workspace. Fill in a catalog you can create tables in,
+# a SQL warehouse you have CAN USE on, and your profile:
+uv run otel2dbx setup \
+  --experiment-name "otel2dbx demo" \
+  --uc-catalog <catalog> --uc-schema mlflow_traces --table-prefix otel \
+  --warehouse-id <warehouse-id> --profile <your-profile>
+
+uv run otel2dbx doctor             # expect every check green before demoing
 ```
 
-`zerobus bootstrap` creates or reuses a dedicated service principal, grants explicit
-`USE CATALOG`, `USE SCHEMA`, `SELECT`, and `MODIFY` privileges on the MLflow-bound spans
-table, and stores its OAuth secret only in the ignored `.env` file. For customer
-deployments where identity is centrally managed, set `ZEROBUS_CLIENT_ID` and
-`ZEROBUS_CLIENT_SECRET` yourself instead.
+`setup` is the only command a fresh workspace needs. It creates (or reuses) the MLflow
+experiment, permanently binds it to a Unity Catalog trace location
+(`<catalog>.<schema>.<experiment-id>_otel_spans`), creates (or reuses) a dedicated
+Zerobus service principal, grants it `USE CATALOG`, `USE SCHEMA`, `SELECT`, and `MODIFY`
+on the spans table, and writes the Zerobus credentials **plus** `OTEL2DBX_EXPERIMENT_ID`
+and `OTEL2DBX_WAREHOUSE_ID` to the ignored `.env` — so every later command runs
+zero-config. You need `USE CATALOG`, `USE SCHEMA`, and `CREATE TABLE` on the catalog and
+permission to create a service principal. The UC binding is permanent for that
+experiment; interactive runs confirm before binding.
 
-For a fresh workspace, `uv run otel2dbx setup` wraps the whole destination setup: it
-creates or reuses the MLflow experiment, binds the UC trace location, runs this
-bootstrap, and can also store the credentials in a Databricks secret scope
-(`--secret-scope`) so bundle jobs need no `.env` file.
-
-If the experiment has no UC trace location, every Databricks command stops without changing it. Supply the intended namespace explicitly:
-
-```bash
---uc-catalog <catalog> --uc-schema <schema> --table-prefix <prefix>
-```
-
-Binding is permanent for that experiment. The command requires `USE CATALOG`, `USE SCHEMA`, and `CREATE TABLE`; trace use also requires explicit `SELECT` and `MODIFY` on the generated tables.
+Add `--secret-scope <scope>` to also store the Zerobus credentials in a Databricks secret
+scope (how the bundle jobs authenticate). If you already have an experiment bound to a UC
+trace location, `uv run otel2dbx zerobus bootstrap` provisions just the service principal
+and grants against it instead of running the full `setup`.
 
 ## Demo walkthrough
 
@@ -149,7 +153,7 @@ Useful controls:
 - `--force`: resend trace IDs that already exist
 - `--secret-scope <scope>`: read Zerobus credentials from a Databricks secret scope
   instead of `.env` (this is how the bundle jobs authenticate)
-- `--profile`, `--experiment-id`, `--warehouse-id`: override the demo defaults on any
+- `--profile`, `--experiment-id`, `--warehouse-id`: override the configured values on any
   destination command
 - Default behavior skips destination trace IDs that are already queryable
 
@@ -169,7 +173,7 @@ zero-config, or pass each per command (flag) or per workspace (bundle target in
 | `ZEROBUS_WORKSPACE_ID` | auto-derived | Zerobus OTLP endpoint host; derived from the authenticated profile when unset |
 | `ZEROBUS_REGION` | `us-east-1` | Zerobus OTLP endpoint region |
 | `OTEL2DBX_SECRET_SCOPE` | unset | Secret scope holding the four Zerobus values; replaces `.env` in jobs |
-| `OTEL2DBX_MODEL_ENDPOINT` | `databricks-kimi-k3` | AI Gateway model serving endpoint used by the LangGraph demo agent |
+| `OTEL2DBX_MODEL_ENDPOINT` | `databricks-claude-sonnet-4-5` | AI Gateway model serving endpoint used by the LangGraph demo agent |
 
 Zerobus provides at-least-once delivery. Deterministic OTEL IDs, destination preflight,
 and manifests prevent ordinary reruns; an ambiguous network failure can still produce a

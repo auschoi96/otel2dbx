@@ -21,7 +21,10 @@ from typing import Any
 from otel2dbx.config import DEFAULT_USER_ID, DEFAULT_WAREHOUSE_ID
 from otel2dbx.errors import ConfigurationError
 
-DEFAULT_MODEL_ENDPOINT = os.getenv("OTEL2DBX_MODEL_ENDPOINT", "databricks-kimi-k3")
+# A Databricks-hosted foundation model endpoint available in most workspaces. Override
+# with OTEL2DBX_MODEL_ENDPOINT (or --model-endpoint) to any endpoint from
+# `databricks serving-endpoints list`.
+DEFAULT_MODEL_ENDPOINT = os.getenv("OTEL2DBX_MODEL_ENDPOINT", "databricks-claude-sonnet-4-5")
 DEFAULT_COLLECTOR_ENDPOINT = os.getenv(
     "OTEL2DBX_COLLECTOR_ENDPOINT", "http://localhost:4318/v1/traces"
 )

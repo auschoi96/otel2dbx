@@ -53,12 +53,12 @@ Claude's safe transcript after a turn and produces standard OTLP protobuf withou
 modifying the user's managed settings.
 
 The LangGraph agent calls a Databricks model serving endpoint through AI Gateway
-(default `databricks-kimi-k3`) and answers questions about workspace data with a
+(default `databricks-claude-sonnet-4-5`) and answers questions about workspace data with a
 read-only SQL tool on the demo SQL warehouse, instrumented with the vanilla
 OpenTelemetry SDK. Same collector, same Langfuse, same migration path — that is the
 framework-agnostic proof.
 
-## Setup (run once, off-camera)
+## Setup (run once)
 
 ```bash
 # 0. Start the Docker daemon. This machine uses Colima; Docker Desktop: open the app.
@@ -73,9 +73,13 @@ databricks auth login https://<your-workspace>.cloud.databricks.com --profile <y
 uv run otel2dbx demo init   # prints the Langfuse password — keep it
 uv run otel2dbx demo up     # waits for Langfuse to report healthy
 
-# 3. Provision Zerobus OAuth and validate the whole chain.
-uv run otel2dbx zerobus bootstrap
-uv run otel2dbx doctor      # expect every check green before going on stage
+# 3. Create the destination in your workspace: MLflow experiment + permanent UC trace
+#    binding, Zerobus service principal, grants, and credentials written to .env.
+uv run otel2dbx setup \
+  --experiment-name "otel2dbx demo" \
+  --uc-catalog <catalog> --uc-schema mlflow_traces --table-prefix otel \
+  --warehouse-id <warehouse-id> --profile <your-profile>
+uv run otel2dbx doctor      # expect every check green before demoing
 
 # 4. Warm up: starts the SQL warehouse and proves both agents trace end to end.
 #    The traces it creates become part of the estate you backfill on camera.
@@ -90,7 +94,7 @@ Open these two tabs:
 2. The Databricks managed MLflow experiment:
    `https://<your-workspace>.cloud.databricks.com/ml/experiments/<your-experiment-id>/overview/usage`
 
-Then record this five-step story:
+Then walk through this five-step story:
 
 1. **Create traces in the old system.**
 
@@ -109,7 +113,8 @@ Then record this five-step story:
    price-parser fix. Other variations: `--agent langgraph` (custom agent only),
    `--count 10` (bulk tasks, sampled randomly from `demo_assets/tasks.json` or
    `demo_assets/langgraph_tasks.json`), `--seed` (reproducible draw),
-   `--model-endpoint databricks-claude-sonnet-4-5` (swap the LangGraph model).
+   `--model-endpoint <endpoint>` (swap the LangGraph model for any from
+   `databricks serving-endpoints list`).
 
 2. **Preview the backfill.**
 
@@ -168,8 +173,8 @@ for one emphasis per slide.
 - "The LangGraph demo dependencies are not installed": run `uv sync` (those packages
   were added after the original lock).
 - First LangGraph task stalls on SQL: the warehouse was cold; it stays warm afterwards.
-  If the default model endpoint is unavailable, use `--model-endpoint
-  databricks-claude-sonnet-4-5` (or any endpoint from `databricks serving-endpoints list`).
+  If the default model endpoint is unavailable in your workspace, pass `--model-endpoint
+  <endpoint>` with any endpoint from `databricks serving-endpoints list`.
 - Lost the Langfuse password: `uv run otel2dbx demo init` reprints it.
 - `uv run otel2dbx demo reset` restores the safe fixture if a prior run already fixed it.
 - `uv run otel2dbx migrate langfuse --resume <run-id>` resumes a partial migration.

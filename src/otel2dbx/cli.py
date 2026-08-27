@@ -11,7 +11,7 @@ from typing import Annotated
 
 import httpx
 import typer
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key
 from rich.console import Console
 from rich.table import Table
 
@@ -373,6 +373,23 @@ def setup_destination(
             resolved_profile,
         )
         console.print(f"Stored Zerobus credentials in secret scope [cyan]{secret_scope}[/cyan].")
+    if local_env:
+        env_file = PROJECT_ROOT / ".env"
+        env_file.touch(mode=0o600, exist_ok=True)
+        persisted = {
+            "OTEL2DBX_EXPERIMENT_ID": experiment_id,
+            "OTEL2DBX_WAREHOUSE_ID": warehouse_id,
+        }
+        if resolved_profile:
+            persisted["OTEL2DBX_DATABRICKS_PROFILE"] = resolved_profile
+        for key, value in persisted.items():
+            set_key(env_file, key, value, quote_mode="always")
+        env_file.chmod(0o600)
+        console.print(
+            "Saved OTEL2DBX_EXPERIMENT_ID, OTEL2DBX_WAREHOUSE_ID"
+            + (", OTEL2DBX_DATABRICKS_PROFILE" if resolved_profile else "")
+            + " to .env; later commands run zero-config."
+        )
     console.print("\nDestination ready. Migrate with:")
     console.print(
         f"  uv run otel2dbx migrate otlp-json <traces.jsonl> --experiment-id {experiment_id}"
