@@ -1,70 +1,86 @@
-# OTEL to Databricks MLflow
+# otel2dbx
 
-This project demonstrates a complete OpenTelemetry trace migration:
+Migrate an existing OpenTelemetry trace estate into **Databricks managed MLflow** — backfill
+history through Zerobus Ingest into Unity Catalog, verify parity trace-by-trace, then cut new
+traffic straight over — without rewriting a line of application instrumentation.
+
+> [!IMPORTANT]
+> **Unofficial example — not a Databricks product.** This is a personal demonstration repo,
+> provided as-is under the [MIT license](LICENSE) with no warranty or support. It exercises
+> Databricks capabilities that are still rolling out, so it will not run in every workspace.
+> Read [**Can you run this?**](#can-you-run-this) before investing time.
 
 ```text
-Claude Code transcript -> Stop hook -> OTLP Collector -> local Langfuse
-                                                |
-                                                +-> OTLP archive
-Langfuse -> otel2dbx -> Zerobus Ingest OTLP -> Unity Catalog -> MLflow UI
-Claude Code transcript -> Stop hook ------------------------------> Zerobus (cutover)
+Historical backfill
+  Claude Code / LangGraph / any OTEL source
+        └─ OTLP ─▶ OTEL Collector ─▶ Langfuse ──▶ otel2dbx ─▶ Zerobus Ingest OTLP
+                        └─▶ OTLP JSON archive ──▶ otel2dbx ─┘          │
+                                                                       ▼
+                                            Unity Catalog trace tables ─▶ managed MLflow Traces UI
+
+Direct cutover
+  Claude Code ─▶ Stop hook ─▶ Zerobus Ingest OTLP ─▶ Unity Catalog ─▶ managed MLflow Traces UI
 ```
 
-It never starts or targets an open-source MLflow tracking server. The destination is always Databricks managed MLflow, with traces stored in Unity Catalog.
+The destination is always Databricks managed MLflow with traces stored in Unity Catalog; this
+project never starts or targets an open-source MLflow tracking server. Claude Code and Langfuse
+are only the *example* workload — any platform that emits OTLP (the OpenTelemetry Collector file
+exporter, Langfuse, LangSmith, an in-house framework) migrates through the same path.
 
-Claude Code and Langfuse are only the example workload. Any platform that can produce OTLP — the OpenTelemetry Collector file exporter, Langfuse, LangSmith, an in-house agent framework — migrates through the same destination and verification path.
+## What it demonstrates
 
-## Migrate any OTEL traces (self-serve)
+- **Backfill:** replay historical traces from a source (a live Langfuse API, or a portable OTLP
+  JSON export) into managed MLflow, with a per-trace parity report (visibility, state, span
+  count, span names) and idempotent reruns.
+- **Cutover:** point new traffic directly at Zerobus and confirm it lands in MLflow without
+  touching the old collector or Langfuse.
+- **Framework-agnostic proof:** two unrelated workloads — Claude Code (a coding agent, traced via
+  a Stop hook) and a LangGraph ReAct agent (traced with the vanilla OpenTelemetry SDK) — flow
+  through one collector, one migration path, one destination.
 
-The included [Databricks Asset Bundle](databricks.yml) parameterizes the entire destination, so any SA can stand it up in their own workspace:
+## Can you run this?
 
-```bash
-# 1. Point the bundle at your workspace: in databricks.yml set the target's `profile`
-#    and its REPLACE_ME variables (uc_catalog, warehouse_id). zerobus_workspace_id and
-#    zerobus_region auto-derive; override only if derivation fails.
-databricks bundle validate -t dev
-databricks bundle deploy -t dev
+There are two halves with very different requirements. **You can run the local half on any
+laptop with no Databricks access at all** and watch real OTEL traces flow into a local Langfuse.
+The migration and cutover halves need a capable Databricks workspace.
 
-# 2. One job creates/binds the experiment, the service principal, grants, and a
-#    secret scope holding the Zerobus credentials.
-databricks bundle run setup_destination -t dev
+### Local half — any laptop
 
-# 3. Drop any OTLP JSON export into the volume and migrate it.
-databricks fs cp traces.jsonl dbfs:/Volumes/<catalog>/<schema>/otel_trace_drops/
-databricks bundle run migrate_traces -t dev
-```
+- **Docker** — Docker Desktop, or Colima + the Docker CLI/Compose. Give it ≥ 4 CPUs and 8–16 GB
+  RAM (the local Langfuse stack is Postgres + ClickHouse + Redis + MinIO + the OTEL Collector).
+- **Python 3.13** and [`uv`](https://docs.astral.sh/uv/).
+- **Claude Code** 2.1.218+ — only for the Claude-capture and cutover steps; the LangGraph path
+  does not need it.
 
-Prefer to run the migration from a laptop (e.g. the source platform is only reachable locally)? The same two steps work without the bundle:
+### Databricks half — a capable workspace
 
-```bash
-uv run otel2dbx setup \
-  --experiment-name "Customer X trace migration" \
-  --uc-catalog <catalog> --uc-schema <schema> --table-prefix <prefix> \
-  --warehouse-id <warehouse> --profile <profile>
-uv run otel2dbx migrate otlp-json traces.jsonl --experiment-id <id-from-setup>
-```
+- **Gating requirement (check this first):** your workspace must have **MLflow tracing on
+  OpenTelemetry with Unity Catalog trace locations**, and **Zerobus Ingest**, available. These
+  are newer Databricks capabilities and are **not enabled everywhere.**
+  **How to check:** run the `otel2dbx setup …` command below. If it fails at the *“bind the
+  experiment to Unity Catalog”* step, or if `otel2dbx doctor` shows the Zerobus checks failing,
+  your workspace does not have these features yet — the local half still works, but the
+  migration and cutover halves will not.
+- **Unity Catalog privileges:** `USE CATALOG`, `USE SCHEMA`, and `CREATE TABLE` on a catalog you
+  choose, plus permission to **create a service principal** for Zerobus ingestion.
+- **A SQL warehouse** you have `CAN USE` on (`databricks warehouses list`).
+- **For the LangGraph agent only:** a **model serving endpoint** reachable through AI Gateway
+  (default `databricks-claude-sonnet-4-5`; override with `--model-endpoint`).
 
-Notes:
+### Time and cost
 
-- `zerobus_workspace_id` is the `o=` number in workspace URLs; `zerobus_region` is the workspace region. Both are bundle variables, CLI options, and env vars (`ZEROBUS_WORKSPACE_ID`, `ZEROBUS_REGION`).
-- The bundle jobs authenticate with the deployer's ambient identity and read Zerobus credentials from the secret scope created by `setup`; nothing is hardcoded.
-- The `otlp-json` adapter replays the original OTLP protobuf unchanged (IDs, kinds, scope, events, links), so it is the preferred adapter for an arbitrary OTEL estate.
-- Binding an experiment to a UC trace location is permanent. Interactive runs ask for confirmation first; jobs proceed deliberately.
+- The first `demo up` **pulls several GB** of container images.
+- A SQL warehouse and a model serving endpoint incur **normal Databricks costs while running** —
+  stop the warehouse when you are done. Everything else this creates (one MLflow experiment, one
+  small UC spans table, a secret scope, a service principal) is negligible.
+- This is a demo, not a load test: it moves a handful of traces, not production volume.
 
-## Prerequisites
-
-- Python 3.13 and `uv`
-- Claude Code 2.1.218 or newer
-- Docker Desktop, or Colima plus the standard Docker CLI/Compose, with at least 4 CPUs and 8–16 GB RAM
-- A Databricks CLI profile authenticated to your workspace
-- A SQL warehouse you have `CAN USE` on (`databricks warehouses list`)
-- Permission to create a service principal and grant UC privileges for initial setup
-- The Databricks OTel/Unity Catalog tracing previews and Zerobus availability in the region
+## Quickstart (guided local demo)
 
 ```bash
 uv sync
 databricks auth login https://<your-workspace>.cloud.databricks.com --profile <your-profile>
-uv run otel2dbx demo init          # writes local Langfuse secrets + login password to .env
+uv run otel2dbx demo init          # writes local Langfuse secrets + a login password to .env
 uv run otel2dbx demo up            # starts local Langfuse + OTEL Collector (first run pulls images)
 
 # Create the destination in YOUR workspace. Fill in a catalog you can create tables in,
@@ -78,129 +94,173 @@ uv run otel2dbx doctor             # expect every check green before demoing
 ```
 
 `setup` is the only command a fresh workspace needs. It creates (or reuses) the MLflow
-experiment, permanently binds it to a Unity Catalog trace location
-(`<catalog>.<schema>.<experiment-id>_otel_spans`), creates (or reuses) a dedicated
-Zerobus service principal, grants it `USE CATALOG`, `USE SCHEMA`, `SELECT`, and `MODIFY`
-on the spans table, and writes the Zerobus credentials **plus** `OTEL2DBX_EXPERIMENT_ID`
-and `OTEL2DBX_WAREHOUSE_ID` to the ignored `.env` — so every later command runs
-zero-config. You need `USE CATALOG`, `USE SCHEMA`, and `CREATE TABLE` on the catalog and
-permission to create a service principal. The UC binding is permanent for that
-experiment; interactive runs confirm before binding.
+experiment, **permanently** binds it to a Unity Catalog trace location
+(`<catalog>.<schema>.<experiment-id>_otel_spans`), creates (or reuses) a dedicated Zerobus
+service principal, grants it `USE CATALOG`, `USE SCHEMA`, `SELECT`, and `MODIFY` on the spans
+table, and writes the Zerobus credentials **plus** `OTEL2DBX_EXPERIMENT_ID` and
+`OTEL2DBX_WAREHOUSE_ID` to the gitignored `.env` — so every later command runs zero-config.
+Interactive runs confirm before the permanent UC binding. Add `--secret-scope <scope>` to also
+store the credentials in a Databricks secret scope (how the bundle jobs authenticate).
 
-Add `--secret-scope <scope>` to also store the Zerobus credentials in a Databricks secret
-scope (how the bundle jobs authenticate). If you already have an experiment bound to a UC
-trace location, `uv run otel2dbx zerobus bootstrap` provisions just the service principal
-and grants against it instead of running the full `setup`.
+> If you already have an experiment bound to a UC trace location, `uv run otel2dbx zerobus
+> bootstrap` provisions just the service principal and grants against it instead of running the
+> full `setup`.
+
+Only have the local half? You can still run `uv run otel2dbx demo up` and
+`uv run otel2dbx demo capture` and watch traces appear in Langfuse — just skip `setup`, `doctor`,
+and every `migrate`/`claude --target zerobus` step.
 
 ## Demo walkthrough
 
-Pre-pull and start the local source first:
+The full presenter script — with talk track, what to point at in each UI, and recovery steps —
+is in **[DEMO.md](DEMO.md)**. The five beats:
 
 ```bash
-uv run otel2dbx demo init
-uv run otel2dbx demo up
-```
+# 1. Create traces in the old system (Langfuse). --agent both adds the LangGraph agent.
+uv run otel2dbx demo capture                      # one Claude Code trace (local-only)
 
-Sign in to <http://localhost:3000> with `demo@example.com` and the generated password printed by `demo init`. Then use this flow:
-
-```bash
-# 1. Generate a safe Claude Code trace with LLM, Read, Bash, and Edit spans.
-uv run otel2dbx demo capture
-#    (or ten random task traces at once: uv run otel2dbx demo capture --count 10)
-#    (or trace a custom LangGraph agent: --agent langgraph, or --agent both)
-
-# 2. Show exactly what will migrate.
+# 2. Preview exactly what will migrate — discovery, span counts, ID mapping, fidelity warnings.
 uv run otel2dbx migrate langfuse --since 15m --dry-run
 
-# 3. Backfill and verify against managed MLflow.
+# 3. Backfill and prove parity against managed MLflow.
 uv run otel2dbx migrate langfuse --since 15m
-
-# 4. Reopen the persisted parity report.
 uv run otel2dbx verify <run-id>
 
-# 5. Prove the cutover: the next trace bypasses Langfuse.
+# 4. Show the portable path: lossless OTLP JSON from any OpenTelemetry Collector.
+uv run otel2dbx migrate otlp-json .otel2dbx/archive/claude-traces.jsonl
+
+# 5. Cut over: the next trace goes straight to Zerobus, bypassing the collector and Langfuse.
 uv run otel2dbx demo reset --no-clear-archive
 uv run otel2dbx claude --target zerobus
 ```
 
-Open the Databricks experiment and select the SQL warehouse in the **Traces** tab:
-
+Sign in to the local Langfuse at <http://localhost:3000> with `demo@example.com` and the password
+printed by `demo init`. Watch the destination in your experiment's **Traces** tab at
 `https://<your-workspace>.cloud.databricks.com/ml/experiments/<your-experiment-id>/overview/usage`
+(select the SQL warehouse there once).
 
-The Claude wrapper uses an additional settings file and `--setting-sources project`. It does not edit `~/.claude/settings.json`, and it disables the unrelated global MLflow Claude hook for the child process. The hook converts Claude's completed transcript into standard OTLP protobuf. This also works on company-managed machines where policy locks Claude's native OTLP exporter to a corporate endpoint.
+The Claude wrapper uses a generated settings file with `--setting-sources project`; it does not
+edit `~/.claude/settings.json` and disables the unrelated global MLflow Claude hook for the child
+process. The Stop hook converts Claude's completed transcript into standard OTLP protobuf, which
+also works on company-managed machines where policy locks Claude's native OTLP exporter to a
+corporate endpoint.
+
+## Run it as a bundle (self-serve, no laptop stack)
+
+The included [Databricks Asset Bundle](databricks.yml) parameterizes the whole destination, so you
+can stand it up entirely in a workspace — no local Langfuse required. Migrate any OTLP JSON export
+this way.
+
+```bash
+# 1. In databricks.yml set the target's `profile` and its REPLACE_ME variables (uc_catalog,
+#    warehouse_id). zerobus_workspace_id and zerobus_region auto-derive; override only if needed.
+databricks bundle validate -t dev
+databricks bundle deploy -t dev
+
+# 2. One job creates/binds the experiment + volume, the service principal, grants, and a
+#    secret scope holding the Zerobus credentials.
+databricks bundle run setup_destination -t dev
+
+# 3. Drop any OTLP JSON export into the volume and migrate it.
+databricks fs cp traces.jsonl dbfs:/Volumes/<catalog>/<schema>/otel_trace_drops/
+databricks bundle run migrate_traces -t dev
+```
+
+The bundle jobs authenticate with the deployer's ambient identity and read Zerobus credentials from
+the secret scope created by `setup_destination`; nothing is hardcoded. A `prod` target is included
+alongside `dev` — fill in the same values.
 
 ## Reusable migration commands
 
-Langfuse v4 API backfill:
+Langfuse API backfill over an explicit window:
 
 ```bash
-uv run otel2dbx migrate langfuse \
-  --from 2026-08-03T16:00:00Z \
-  --to 2026-08-03T17:00:00Z
+uv run otel2dbx migrate langfuse --from 2026-08-03T16:00:00Z --to 2026-08-03T17:00:00Z
 ```
 
-Portable OTLP JSON exported by the OpenTelemetry Collector file exporter:
+Portable OTLP JSON (OpenTelemetry Collector file-exporter format) — the preferred adapter for an
+arbitrary OTEL estate, since it replays the original protobuf unchanged (IDs, kinds, scope, events,
+links):
 
 ```bash
-uv run otel2dbx migrate otlp-json .otel2dbx/archive/claude-traces.jsonl
+uv run otel2dbx migrate otlp-json path/to/traces.jsonl --experiment-id <id>
 ```
 
-Useful controls:
+Useful controls (any `migrate`/destination command):
 
-- `--dry-run`: discover and normalize without exporting
-- `--resume <run-id>`: continue from a saved checkpoint
-- `--no-verify`: do not wait for Databricks query visibility
-- `--force`: resend trace IDs that already exist
-- `--secret-scope <scope>`: read Zerobus credentials from a Databricks secret scope
-  instead of `.env` (this is how the bundle jobs authenticate)
-- `--profile`, `--experiment-id`, `--warehouse-id`: override the configured values on any
-  destination command
-- Default behavior skips destination trace IDs that are already queryable
+- `--dry-run` — discover and normalize without exporting.
+- `--resume <run-id>` — continue from a saved checkpoint.
+- `--no-verify` — do not wait for Databricks query visibility.
+- `--force` — resend trace IDs that already exist (see the delivery note under Configuration).
+- `--secret-scope <scope>` — read Zerobus credentials from a Databricks secret scope instead of
+  `.env` (how the bundle jobs authenticate).
+- `--profile`, `--experiment-id`, `--warehouse-id` — override the configured values per command.
+- By default, destination trace IDs that are already queryable are skipped.
 
 Run manifests are written to `.otel2dbx/runs/` and contain no credentials.
 
 ## Configuration
 
-Nothing is hardcoded to a workspace. Set these once in your gitignored `.env` to run
-zero-config, or pass each per command (flag) or per workspace (bundle target in
-`databricks.yml`):
+Nothing is hardcoded to a workspace. `otel2dbx setup` writes the destination values into your
+gitignored `.env` for you; you can also set any of these by hand, pass them per command (flag), or
+set them per workspace (bundle target in `databricks.yml`). Precedence: **flag → environment →
+Databricks ambient identity (on compute) → built-in default.**
 
 | Environment variable | Default | Purpose |
 |---|---|---|
 | `OTEL2DBX_DATABRICKS_PROFILE` | `DEFAULT` | Databricks CLI profile; unused on Databricks compute, where the ambient identity applies |
 | `OTEL2DBX_EXPERIMENT_ID` | required | Destination MLflow experiment (`otel2dbx setup` creates one) |
 | `OTEL2DBX_WAREHOUSE_ID` | required | SQL warehouse for grants and trace reads |
-| `ZEROBUS_WORKSPACE_ID` | auto-derived | Zerobus OTLP endpoint host; derived from the authenticated profile when unset |
+| `ZEROBUS_WORKSPACE_ID` | auto-derived | Zerobus OTLP endpoint host (the `o=` number in workspace URLs); derived from the authenticated profile when unset |
 | `ZEROBUS_REGION` | `us-east-1` | Zerobus OTLP endpoint region |
-| `OTEL2DBX_SECRET_SCOPE` | unset | Secret scope holding the four Zerobus values; replaces `.env` in jobs |
+| `OTEL2DBX_SECRET_SCOPE` | unset | Secret scope holding the four `ZEROBUS_*` values; replaces `.env` in jobs |
 | `OTEL2DBX_MODEL_ENDPOINT` | `databricks-claude-sonnet-4-5` | AI Gateway model serving endpoint used by the LangGraph demo agent |
 
-Zerobus provides at-least-once delivery. Deterministic OTEL IDs, destination preflight,
-and manifests prevent ordinary reruns; an ambiguous network failure can still produce a
-duplicate row when a request is retried after it was accepted. Avoid `--force` unless a
-deliberate resend is required.
+`ZEROBUS_CLIENT_ID` / `ZEROBUS_CLIENT_SECRET` are the service-principal OAuth credentials; `setup`
+and `zerobus bootstrap` write them to `.env`. See [`.env.example`](.env.example) for the full list.
 
-## Fidelity contract
+Zerobus provides at-least-once delivery. Deterministic OTEL IDs, destination preflight, and
+manifests prevent duplicates on ordinary reruns; an ambiguous network failure can still produce a
+duplicate row if a request is retried after it was accepted. Avoid `--force` unless a deliberate
+resend is required.
 
-The OTLP JSON adapter preserves the original protobuf structure and IDs. The payload is
-sent unchanged to `https://<workspace-id>.zerobus.<region>.cloud.databricks.com/v1/traces`.
-Routing remains outside the payload through `x-databricks-zerobus-table-name`.
+## How migration preserves fidelity
 
-Langfuse's v2 Observations API exposes the tree, timestamps, I/O, metadata, resource attributes, model, and usage, but not the original span kind, instrumentation scope, links, or events. The Langfuse adapter reconstructs what the public API exposes and reports this limitation on every run. Non-OTel vendor IDs are mapped deterministically while the originals are retained as attributes.
+- **OTLP JSON adapter:** preserves the original protobuf structure and IDs exactly. The payload is
+  sent unchanged to `https://<workspace-id>.zerobus.<region>.cloud.databricks.com/v1/traces`;
+  routing to the target table stays outside the payload via the
+  `x-databricks-zerobus-table-name` header.
+- **Langfuse adapter:** Langfuse's public Observations API exposes the span tree, timestamps, I/O,
+  metadata, resource attributes, model, and usage — but *not* the original span kind,
+  instrumentation scope, links, or events. The adapter reconstructs what the API exposes,
+  deterministically maps non-OTel vendor IDs (retaining the originals as attributes), and reports
+  this limitation on every run.
+- **Claude traces:** the adapter adds standard GenAI attributes so Databricks renders agent, chat,
+  and tool span types and aggregates token usage on the root span.
 
-For Claude traces, the adapter adds standard GenAI attributes so Databricks renders agent, chat, and tool span types and aggregates token usage on the root span.
+## Security & data handling
 
-## Security
-
-- The demo captures full content only from `demo_workspace`, a purpose-built throwaway fixture.
-- Do not point full-content Claude telemetry at a real customer repository.
-- Langfuse and Zerobus service-principal secrets are excluded from Git.
-- Table-scoped Zerobus access tokens are refreshed dynamically, kept in memory, and never
-  written into generated settings or manifests.
-- `docker compose down` preserves local data; delete volumes only when you intentionally want to destroy the demo database.
+- **Full trace content is captured only from `demo_workspace`,** a purpose-built throwaway fixture
+  regenerated by `demo reset`. **Do not point full-content Claude telemetry at a real repository.**
+- Langfuse and Zerobus service-principal secrets live only in the gitignored `.env` (or a secret
+  scope) and are excluded from Git.
+- Table-scoped Zerobus access tokens are minted on demand, kept in memory, and never written into
+  generated settings or run manifests.
+- `docker compose down` stops the local stack but **preserves its data**; only delete the volumes
+  when you intentionally want to destroy the local demo database.
 
 ## Tests
 
 ```bash
-uv run pytest
+uv run pytest            # unit tests (no Docker or Databricks required)
+uv run ruff check src tests
 ```
+
+## Disclaimer & license
+
+This repository is an **unofficial, individual demonstration** — not an official Databricks
+product, not a supported [Solution Accelerator](https://www.databricks.com/solutions/accelerators),
+and not covered by any Databricks support agreement. It relies on preview/rolling-out capabilities
+that may change or be unavailable in your workspace. Use it at your own risk.
+
+Licensed under the [MIT License](LICENSE) — © 2026 Austin Choi.

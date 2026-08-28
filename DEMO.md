@@ -1,10 +1,15 @@
 # OTEL to Databricks managed MLflow demo
 
+> This is the presenter script. Before following it, read
+> [README.md → Can you run this?](README.md#can-you-run-this) to confirm your workspace has
+> the required capabilities (MLflow tracing on OpenTelemetry with Unity Catalog trace
+> locations, and Zerobus Ingest) — they are not enabled in every workspace. This is an
+> unofficial demo provided as-is; see the README's disclaimer.
+
 ## Outcome
 
-Show Databricks GTM field engineers that an existing OpenTelemetry trace estate can be
-backfilled into Databricks managed MLflow and then cut over to direct ingestion without
-rewriting application instrumentation.
+Show that an existing OpenTelemetry trace estate can be backfilled into Databricks managed
+MLflow and then cut over to direct ingestion without rewriting application instrumentation.
 
 The demo traces two kinds of agents — Claude Code (a coding agent) and a LangGraph
 ReAct agent (a custom data agent) — with local Langfuse as the source system. The

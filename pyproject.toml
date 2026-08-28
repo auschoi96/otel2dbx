@@ -8,6 +8,14 @@ version = "0.1.0"
 description = "Migrate OpenTelemetry traces through Zerobus into Databricks managed MLflow"
 readme = "README.md"
 requires-python = ">=3.13"
+authors = [{ name = "Austin Choi" }]
+license = { file = "LICENSE" }
+keywords = ["opentelemetry", "otlp", "mlflow", "databricks", "zerobus", "tracing"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: System :: Monitoring",
+]
 dependencies = [
   "databricks-sdk>=0.85.0",
   "httpx>=0.28.1",
@@ -26,6 +34,9 @@ dependencies = [
 
 [project.scripts]
 otel2dbx = "otel2dbx.cli:main"
+
+[project.urls]
+Repository = "https://github.com/auschoi96/otel2dbx"
 
 [dependency-groups]
 dev = [
