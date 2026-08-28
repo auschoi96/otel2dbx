@@ -8,8 +8,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTrace
 
 from otel2dbx.config import DatabricksTarget, UnityCatalogTarget
 from otel2dbx.databricks import ResolvedDestination, ZerobusOTLPSink
-from otel2dbx.otel import build_langfuse_trace
-from tests.test_otel import observations
+from tests.otlp_fixtures import sample_request
 
 
 def test_export_posts_protobuf_to_zerobus_otlp_endpoint() -> None:
@@ -39,7 +38,7 @@ def test_export_posts_protobuf_to_zerobus_otlp_endpoint() -> None:
         workspace_id="1234567890123456",
         region="us-east-1",
     )
-    request = build_langfuse_trace(observations()).request
+    request = sample_request()
 
     sink.export(request)
 
@@ -100,6 +99,6 @@ def test_export_refreshes_zerobus_token_after_unauthorized() -> None:
         workspace_id="1234567890123456",
     )
 
-    sink.export(build_langfuse_trace(observations()).request)
+    sink.export(sample_request())
 
     assert calls == {"token": 2, "export": 2}

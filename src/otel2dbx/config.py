@@ -17,16 +17,10 @@ DEFAULT_WAREHOUSE_ID = os.getenv("OTEL2DBX_WAREHOUSE_ID", "")
 # with the o= number from your workspace URL only when derivation is not possible.
 DEFAULT_ZEROBUS_WORKSPACE_ID = os.getenv("ZEROBUS_WORKSPACE_ID", "")
 DEFAULT_ZEROBUS_REGION = os.getenv("ZEROBUS_REGION", "us-east-1")
-DEFAULT_LANGFUSE_URL = "http://localhost:3000"
-# Set as the user.id span attribute on demo agent root spans so the MLflow
-# Traces UI can group/filter by user.
-DEFAULT_USER_ID = os.getenv("OTEL2DBX_USER_ID", "demo@example.com")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATE_DIR = PROJECT_ROOT / ".otel2dbx"
 RUNS_DIR = STATE_DIR / "runs"
-GENERATED_DIR = STATE_DIR / "generated"
-ARCHIVE_DIR = STATE_DIR / "archive"
 
 
 def running_on_databricks() -> bool:

@@ -6,7 +6,6 @@ __pycache__/
 .ruff_cache/
 .coverage
 .otel2dbx/
-demo_workspace/
 .DS_Store
 *.pyc
 dist/
